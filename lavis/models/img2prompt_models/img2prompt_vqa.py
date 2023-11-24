@@ -167,14 +167,16 @@ class Img2PromptVQA(BaseModel):
                 - gradcams (torch.Tensor): A tensor of shape (batch_size, H*W)
                 - captions (nested list): A nested list of strings of total length batch_size * num_captions
         """
-        encoder_out = self.image_captioning_model.forward_encoder(samples)
+        encoder_out = self.image_captioning_model.forward_encoder(samples) # [bsz, num_patch=1+24*24=577, dim=1024]
         captions = [[] for _ in range(encoder_out.size(0))]
 
         min_num_captions = 0
 
         while min_num_captions < num_captions:
             encoder_out_samples = []
+            # For each caption
             for i in range(num_captions):
+                # sample patches according to gradcam
                 patch_id = (
                     torch.multinomial(
                         samples["gradcams"].to(self.image_captioning_model.device),
@@ -187,22 +189,23 @@ class Img2PromptVQA(BaseModel):
                     .values.unsqueeze(-1)
                     .expand(-1, -1, encoder_out.size(2))
                 )
-                encoder_out_sample = torch.gather(encoder_out, 1, patch_id)
-                encoder_out_samples.append(encoder_out_sample)
+                encoder_out_sample = torch.gather(encoder_out, 1, patch_id) # [bsz, num_patch, dim=1024]
+                encoder_out_samples.append(encoder_out_sample) 
 
-            stacked = torch.stack(encoder_out_samples, dim=1)
+            # create encoder-hidden-states for multimodal-cross-attention
+            stacked = torch.stack(encoder_out_samples, dim=1) # [bsz, num_caption, num_patch, dim=1024]
             image_embeds = torch.flatten(
                 stacked, start_dim=0, end_dim=1
-            )  # (bsz*num_seq, num_patch, dim)
-
-            image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(
+            )  # (bsz*num_caption, num_patch, dim)
+            image_attn_mask = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(
                 self.image_captioning_model.device
             )
             model_kwargs = {
                 "encoder_hidden_states": image_embeds,
-                "encoder_attention_mask": image_atts,
+                "encoder_attention_mask": image_attn_mask,
             }
 
+            # create input_ids for text decoder 
             prompt = [self.image_captioning_model.prompt] * image_embeds.size(0)
             prompt = self.image_captioning_model.tokenizer(
                 prompt, return_tensors="pt"
@@ -210,6 +213,7 @@ class Img2PromptVQA(BaseModel):
             prompt.input_ids[:, 0] = self.image_captioning_model.tokenizer.bos_token_id
             prompt.input_ids = prompt.input_ids[:, :-1]
 
+            # generate (bsz * num_caption) captions according to (num_patches) image patches
             decoder_out = self.image_captioning_model.text_decoder.generate(
                 input_ids=prompt.input_ids,
                 max_length=cap_max_length,
@@ -224,9 +228,10 @@ class Img2PromptVQA(BaseModel):
                 **model_kwargs
             )
 
+            # filter caption according to itm score (more than 0.5)
             itm_outputs = self.image_question_matching_model.itm_rank(
-                image_embeds, image_atts, encoder_input_ids=decoder_out
-            )  # caption filter
+                image_embeds, image_attn_mask, encoder_input_ids=decoder_out
+            )  # [bsz * num_caption]
 
             outputs = self.image_captioning_model.tokenizer.batch_decode(
                 decoder_out, skip_special_tokens=True
@@ -236,8 +241,8 @@ class Img2PromptVQA(BaseModel):
                 ind = counter // num_captions
                 if len(captions[ind]) < num_captions:
                     caption = output[len(self.image_captioning_model.prompt) :]
+                    # no duplicate captions
                     overlap_caption = [1 for caps in captions[ind] if caption in caps]
-                    # print(itm_outputs)
                     if (
                         len(overlap_caption) == 0 and itm_outputs[counter] >= 0.5
                     ):  # image filter
@@ -249,18 +254,17 @@ class Img2PromptVQA(BaseModel):
 
         return samples
 
-    def answer_extraction(self, caption, num_question_generation=30):
-        cap_use = ""
-        # print(caption)
-        caption = caption
-        ans_to_cap_dict = {}
+    def answer_extraction(self, captions, num_question_generation=30):
+        cap_use = "" # ??? why concat all captions?
+        ans_to_cap_dict = {} # record the caption id for each answer
         answers = []
-        for cap_idx, cap in enumerate(caption):
+        for cap_idx, cap in enumerate(captions):
             # print(cap)
             cap_use += cap
             cap = cap.strip().strip(".")
             # print(cap)
-            cap = self.nlp(cap)
+            cap = self.nlp(cap) # use spacy for parsing
+            # extract each token
             for token in cap:  # Noun /Verb/Adj//NUM
                 if token.pos_ in open_pos:
                     if token.text.lower() not in ans_to_cap_dict:
@@ -269,8 +273,8 @@ class Img2PromptVQA(BaseModel):
                         if cap_idx not in ans_to_cap_dict[token.text.lower()]:
                             ans_to_cap_dict[token.text.lower()].append(cap_idx)
                     answers.append(token.text)
+            # extract entity as answer
             for ent in cap.ents:
-
                 if ent.text not in answers:
                     if ent.text.lower() not in ans_to_cap_dict:
                         ans_to_cap_dict[ent.text.lower()] = [cap_idx]
@@ -278,6 +282,7 @@ class Img2PromptVQA(BaseModel):
                         if cap_idx not in ans_to_cap_dict[ent.text.lower()]:
                             ans_to_cap_dict[ent.text.lower()].append(cap_idx)
                     answers.append(ent.text)
+            # extract chunk
             for chunk in cap.noun_chunks:
                 if len(chunk.text.split()) < 4:
                     if chunk.text.lower() not in ans_to_cap_dict:
@@ -310,12 +315,12 @@ class Img2PromptVQA(BaseModel):
         return contexts_for_question_generation, answers, ans_to_cap_dict
 
     def forward_qa_generation(self, samples):
-        caption = samples["captions"][0]
+        captions = samples["captions"][0] # Maybe buggy for batch_size > 1
         (
             contexts_for_question_generation,
             answers,
             ans_to_cap_dict,
-        ) = self.answer_extraction(caption)
+        ) = self.answer_extraction(captions)
         inputs = self.question_generation_tokenizer(
             contexts_for_question_generation,
             padding="longest",
@@ -328,6 +333,7 @@ class Img2PromptVQA(BaseModel):
         true_input_size = 10
         outputs_list = []
         while cur_b < question_size:
+            # generate in a batch of `true_input_size`
             outputs = self.question_generation_model.generate(
                 input_ids=inputs.input_ids[cur_b : cur_b + true_input_size],
                 attention_mask=inputs.attention_mask[cur_b : cur_b + true_input_size],

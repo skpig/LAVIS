@@ -5,6 +5,12 @@ from skimage import transform as skimage_transform
 
 
 def getAttMap(img, attMap, blur=True, overlap=True):
+    """
+    Reshape and blur attention map to overlay on image.
+    Args:
+        img (np.ndarray of shape (H, W, 3)): image.
+        attMap (np.ndarray of shape (H', W')): attention map.
+    """
     attMap -= attMap.min()
     if attMap.max() > 0:
         attMap /= attMap.max()
