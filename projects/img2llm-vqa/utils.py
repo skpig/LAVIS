@@ -3,7 +3,27 @@ import json
 from PIL import Image
 from networkx import lexicographic_product
 import re
+import openai
 
+openai.api_key = "EMPTY"
+# openai.base_url = "http://localhost:8000/v1"
+openai.api_base = "http://localhost:8000/v1"
+
+def chat_completion(history, max_tokens=200, temperature=0.):
+    try:
+        completion = openai.ChatCompletion.create(
+            model='llama2_chat_13b',
+            messages=history,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=0.95,
+            n=1
+        )
+    
+        # print the completion
+        return completion.choices[0].message.content
+    except Exception as e:
+        return "[Answer] Error, iteration too long."
 
 def visualize_chat_prompt(history):
     """
@@ -85,7 +105,7 @@ def soft_acc(dataset, samples):
         if 'direct_answers' not in d:
             continue
         pred_answer = postprocess_Answer(s['pred'])
-        num_match = sum([pred_answer == ans for ans in d['direct_answers']])
+        num_match = sum([pred_answer.find(ans) != -1 for ans in d['direct_answers']])
         acc.append(min(1.0, num_match/3.0))
         
     return acc

@@ -1,4 +1,6 @@
+from copy import deepcopy
 import sys
+import re
 import json
 import torch
 import os
@@ -15,7 +17,7 @@ except RuntimeError:
 from lavis.common.gradcam import getAttMap
 from lavis.models import load_model_and_preprocess
 
-from utils import load_aokvqa, soft_acc, visualize_chat_prompt, batch_chat_prompt
+from utils import load_aokvqa, soft_acc, visualize_chat_prompt, batch_chat_prompt, chat_completion 
 
 MODEL_DIR = "/data2/pretrain/"
 OUTPUT_DIR = "/data1/huangbz/LAVIS/"
@@ -80,7 +82,7 @@ def prompt_generation(batch_data, device, model, vis_processors, txt_processors)
 
     # #### 2. Image Captioning
     # Generate question-guided captions based on the relevancy score
-    samples = model.forward_cap(samples=samples, num_captions=5, num_patches=20) # add a field 'captions': a list of bsz lists of strings
+    samples = model.forward_cap(samples=samples, num_captions=10, num_patches=20) # add a field 'captions': a list of bsz lists of strings
     # print('Examples of question-guided captions: ')
     # print(samples['captions'][0][:5])
 
@@ -107,37 +109,18 @@ def prompt_generation(batch_data, device, model, vis_processors, txt_processors)
     rtn = ['.'.join(samples['captions'][i]) for i in range(len(samples['captions']))]
     return rtn
 
-def answer_generation(model, tokenizer, batch_history, device):
-    history_prompts = batch_chat_prompt(batch_history, tokenizer)
-
-    print(history_prompts)
-    Img2Prompt_input = tokenizer(history_prompts, padding='longest', truncation=True, return_tensors="pt").to(device)
-    print(Img2Prompt_input.input_ids.shape)
-
-    assert (len(Img2Prompt_input.input_ids[0])+20) <= 2048, "The length of input_ids should be less than 2048"
-    # print(len(question_input.attention_mask[0]))
-
-    outputs_list  = []
-    outputs = model.generate(input_ids=Img2Prompt_input.input_ids,
-                            attention_mask=Img2Prompt_input.attention_mask,
-                            max_length=200+len(Img2Prompt_input.input_ids[0]),
-                            return_dict_in_generate=True,
-                            output_scores = True
-                            )
-    outputs_list.append(outputs)
-
-    preds = tokenizer.batch_decode(outputs.sequences[:, len(Img2Prompt_input.input_ids[0]):])
-
-    #pred_answers, caption, gradcam = model.predict_answers(samples, num_captions=50, num_patches=20)
-    #print('Question: {} \nPredicted answer: {}'.format(question, pred_answers[0]))
-
+def answer_generation(batch_history):
+    preds = [
+        chat_completion(history=history, max_tokens=200, temperature=0.)
+        for history in batch_history
+    ]
     for pred, history in zip(preds, batch_history):
         history.append({'role': 'assistant', 'content': pred})
 
     return batch_history, preds
 
 def prompt_generation_worker(sample):
-    device = torch.device(f"cuda:0")
+    device = torch.device(f"cuda:1")
     
     # ### Load Img2Prompt-VQA model
     model, vis_processors, txt_processors = load_model_and_preprocess(name="img2prompt_vqa", model_type="base", is_eval=True, device=device)
@@ -205,11 +188,7 @@ def main(model_name='facebook/opt-6.7b', dataset_name='aokvqa', split='val', bsz
         with open('error_cases.json', 'w') as f:
             json.dump(error_cases, f, indent=4)
 
-def error_cases(id=0):
-    with open('error_cases.json', 'r') as f:
-        error_cases = json.load(f)
-    
-    error_case = error_cases[id]
+def error_cases_analysis(error_case):
 
     print("========================================")
     print("============Question====================")
@@ -225,7 +204,7 @@ def error_cases(id=0):
             'content': """Each time I give you a query, including a [Question] and some [Captions] about an image. Try to answer the question by thinking step-by-step according to given contexts. 
 1. You need to give the "[Reason]:reason" in each response. 
 2. You can use the "[Search]:object" to ask for more image captions, where "object" is the term you want to look up in the image.
-3. Output a "[Answer]:answer" if you have found the answer. """
+3. Output "[Answer]:answer" if you have found the answer. Otherwise, output "[Answer]:None"."""
         },
         {
             'role': 'user',
@@ -255,17 +234,10 @@ def error_cases(id=0):
 
     visualize_chat_prompt(history)
 
-    model_name = f"llama2/Llama-2-13b-chat-hf"
-
-    ### Load Img2Prompt-VQA model
-    caption_model, vis_processors, txt_processors = load_model_and_preprocess(name="img2prompt_vqa", model_type="base", is_eval=True, device=torch.device('cuda:0'))
-
-    llm_model,tokenizer = load_model(f'{MODEL_DIR}/{model_name}')
-    llm_model = llm_model.to(torch.device('cuda:1'))
-
+    original_question = error_case['question']
     first_turn = True
     while True:
-        batch_cur_caption = prompt_generation([error_case], torch.device('cuda:0'), caption_model, vis_processors, txt_processors)
+        batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors)
         torch.cuda.empty_cache()
         # get first caption
         cur_caption = batch_cur_caption[0]
@@ -288,7 +260,7 @@ def error_cases(id=0):
         
 
         with torch.no_grad():
-            batch_history, batch_cur_responese = answer_generation(llm_model, tokenizer, [history], torch.device('cuda:1'))
+            batch_history, batch_cur_responese = answer_generation([history])
         # get first history and response
         history = batch_history[0]
         cur_responese = batch_cur_responese[0]
@@ -296,11 +268,18 @@ def error_cases(id=0):
         
 
         # TODO: change the 'question' field in error_case according to cur_response
-        error_case['question'] = cur_responese
+        search_question = re.search(r'\[Search\] (.*)\n', cur_responese)
+        if search_question is not None:
+            error_case['question'] = search_question.group(1)
+        else:
+            error_case['question'] = original_question
 
         visualize_chat_prompt(history[-2:])
 
-        input("Press Enter to continue...")
+        # input("Press Enter to continue...")
+        group = re.search(r'\[Answer\] (.*)', cur_responese)
+        if group is not None and group.group(1).find('None') == -1:
+            return cur_responese, history
 
 
 
@@ -319,4 +298,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # main(dataset_name=args.dataset_name, split=args.split, bsz=args.bsz, device=args.device, stage=args.stage)
 
-    error_cases(0)
+    with open('error_cases.json', 'r') as f:
+        error_cases = json.load(f)
+    model_name = f"llama2/Llama-2-13b-chat-hf"
+
+    ### Load Img2Prompt-VQA model
+    caption_model, vis_processors, txt_processors = load_model_and_preprocess(name="img2prompt_vqa", model_type="base", is_eval=True, device=torch.device('cuda:1'))
+
+
+    for error_case in error_cases:
+        error_case['new_pred'], error_case['history'] = error_cases_analysis(deepcopy(error_case))
+    with open('error_cases_ours.json', 'w') as f:
+        json.dump(error_cases, f, indent=4)
+
+    
