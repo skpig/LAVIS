@@ -96,7 +96,10 @@ class Img2PromptVQA(BaseModel):
         gradcams = [gradcam_[1] for gradcam_ in gradcams]
         samples["gradcams"] = torch.stack(gradcams).reshape(
             samples["image"].size(0), -1
-        )
+        ).clone().detach_()
+
+        del gradcams
+        del _
 
         return samples
 
@@ -108,32 +111,34 @@ class Img2PromptVQA(BaseModel):
 
         if match_head == "itm":
             # encoder_input_ids = encoder_input_ids.clone()
-            encoder_input_ids[:, 0] = self.tokenizer.enc_token_id
-            output = self.text_encoder(
-                encoder_input_ids,
-                attention_mask=text_attention_mask,
-                encoder_hidden_states=image_embeds,
-                encoder_attention_mask=image_atts,
-                return_dict=True,
-            )
-            itm_output = self.itm_head(output.last_hidden_state[:, 0, :])
-            return itm_output  # , mask, token_length
+            with torch.no_grad():
+                encoder_input_ids[:, 0] = self.tokenizer.enc_token_id
+                output = self.text_encoder(
+                    encoder_input_ids,
+                    attention_mask=text_attention_mask,
+                    encoder_hidden_states=image_embeds,
+                    encoder_attention_mask=image_atts,
+                    return_dict=True,
+                )
+                itm_output = self.itm_head(output.last_hidden_state[:, 0, :])
+                return itm_output.clone().detach_()  # , mask, token_length
 
         elif match_head == "itc":
-            encoder_input_ids[:, 0] = self.tokenizer.cls_token_id
-            text_output = self.text_encoder(
-                encoder_input_ids,
-                attention_mask=text_attention_mask,
-                return_dict=True,
-                mode="text",
-            )
-            image_feat = F.normalize(self.vision_proj(image_embeds[:, 0, :]), dim=-1)
-            text_feat = F.normalize(
-                self.text_proj(text_output.last_hidden_state[:, 0, :]), dim=-1
-            )
+            with torch.no_grad():
+                encoder_input_ids[:, 0] = self.tokenizer.cls_token_id
+                text_output = self.text_encoder(
+                    encoder_input_ids,
+                    attention_mask=text_attention_mask,
+                    return_dict=True,
+                    mode="text",
+                )
+                image_feat = F.normalize(self.vision_proj(image_embeds[:, 0, :]), dim=-1)
+                text_feat = F.normalize(
+                    self.text_proj(text_output.last_hidden_state[:, 0, :]), dim=-1
+                )
 
-            sim = image_feat @ text_feat.t()
-            return sim
+                sim = image_feat @ text_feat.t()
+                return sim.clone().detach_()
 
     def forward_cap(
         self,
@@ -167,8 +172,9 @@ class Img2PromptVQA(BaseModel):
                 - gradcams (torch.Tensor): A tensor of shape (batch_size, H*W)
                 - captions (nested list): A nested list of strings of total length batch_size * num_captions
         """
-        encoder_out = self.image_captioning_model.forward_encoder(samples) # [bsz, num_patch=1+24*24=577, dim=1024]
-        captions = [[] for _ in range(encoder_out.size(0))]
+        with torch.no_grad():
+            encoder_out = self.image_captioning_model.forward_encoder(samples) # [bsz, num_patch=1+24*24=577, dim=1024]
+        captions = [[] for _ in range(encoder_out.size(0))] # bsz lists
 
         min_num_captions = 0
 
@@ -315,130 +321,139 @@ class Img2PromptVQA(BaseModel):
         return contexts_for_question_generation, answers, ans_to_cap_dict
 
     def forward_qa_generation(self, samples):
-        captions = samples["captions"][0] # Maybe buggy for batch_size > 1
-        (
-            contexts_for_question_generation,
-            answers,
-            ans_to_cap_dict,
-        ) = self.answer_extraction(captions)
-        inputs = self.question_generation_tokenizer(
-            contexts_for_question_generation,
-            padding="longest",
-            truncation=True,
-            max_length=2048,
-            return_tensors="pt",
-        ).to(self.device)
-        question_size = inputs.input_ids.shape[0]
-        cur_b = 0
-        true_input_size = 10
-        outputs_list = []
-        while cur_b < question_size:
-            # generate in a batch of `true_input_size`
-            outputs = self.question_generation_model.generate(
-                input_ids=inputs.input_ids[cur_b : cur_b + true_input_size],
-                attention_mask=inputs.attention_mask[cur_b : cur_b + true_input_size],
-                num_beams=3,
-                max_length=30,
-            )
-            questions = self.question_generation_tokenizer.batch_decode(
-                outputs, skip_special_tokens=True
-            )
-            outputs_list += questions
-            cur_b += true_input_size
-        questions = outputs_list
-        samples["questions"] = questions
-        samples["answers"] = answers
-        samples["ans_to_cap_dict"] = ans_to_cap_dict
+        samples["questions"] = []
+        samples["answers"] = []
+        samples["ans_to_cap_dict"] = []
+        for captions in samples["captions"]:
+            (
+                contexts_for_question_generation, # answer: a1 ... context: cap1, cap2, ... (Noted that all captions are in the context)
+                answers, # a1, a2, ...
+                ans_to_cap_dict, # a1: [cap1, cap2, ...]
+            ) = self.answer_extraction(captions) 
+            inputs = self.question_generation_tokenizer(
+                contexts_for_question_generation,
+                padding="longest",
+                truncation=True,
+                max_length=1536,
+                return_tensors="pt",
+            ).to(self.device)
+            question_size = inputs.input_ids.shape[0]
+            cur_b = 0
+            true_input_size = 8
+            outputs_list = []
+            while cur_b < question_size:
+                # generate in a batch of `true_input_size`
+                outputs = self.question_generation_model.generate(
+                    input_ids=inputs.input_ids[cur_b : cur_b + true_input_size],
+                    attention_mask=inputs.attention_mask[cur_b : cur_b + true_input_size],
+                    num_beams=3,
+                    max_length=30,
+                )
+                questions = self.question_generation_tokenizer.batch_decode(
+                    outputs, skip_special_tokens=True
+                )
+                outputs_list += questions
+                cur_b += true_input_size
+            questions = outputs_list
+            samples["questions"].append(questions)
+            samples["answers"].append(answers)
+            samples["ans_to_cap_dict"].append(ans_to_cap_dict)
+
+            del inputs
+            del outputs
         # results.append({"question_id": ques_id, "question":questions,"answer":answers})
         return samples
-
+    # TODO: Maybe buggy
     def create_context_prompt(self, samples, num_caps_per_img=30):
-        ans_dict_queid = samples["ans_to_cap_dict"]
-        # print(ans_dict_queid)
-        caption = samples["captions"][0]
-        answers = samples["answers"]
-        Context_Prompt = ""
-        mycontexts_id = []
-        for idx in range(num_caps_per_img):
-            cap_id_list = ans_dict_queid.get(
-                answers[(len(answers) - 1 - idx) % len(answers)][:-1].lower(), [0]
-            )
-            for cap_id in cap_id_list:
-                if cap_id not in mycontexts_id:
-                    Context_Prompt += caption[cap_id]
-                    mycontexts_id.append(cap_id)
-                    break  # We just take one cap for each answer
-        samples["Context_Prompt"] = Context_Prompt
-        return Context_Prompt
+        samples["Context_Prompt"] = []
+        for i in range(len(samples["answers"])):
+            ans_dict_queid = samples["ans_to_cap_dict"][i]
+            # print(ans_dict_queid)
+            caption = samples["captions"][i]
+            answers = samples["answers"][i]
+            Context_Prompt = ""
+            mycontexts_id = []
+            for idx in range(num_caps_per_img):
+                cap_id_list = ans_dict_queid.get(
+                    answers[(len(answers) - 1 - idx) % len(answers)][:-1].lower(), [0] # use [:-1] to remove '.'
+                )
+                for cap_id in cap_id_list:
+                    if cap_id not in mycontexts_id:
+                        Context_Prompt += caption[cap_id]
+                        mycontexts_id.append(cap_id)
+                        break  # We just take one cap for each answer
+            samples["Context_Prompt"].append(Context_Prompt)
+        return samples["Context_Prompt"]
 
     def create_task_prompt(
         self, samples, question_type="neural", num_question_per_img=30
     ):
-        syn_question_queid = samples["questions"]
-        syn_ans_queid = samples["answers"]
-        Task_Prompt = ""
-        for idx in range(num_question_per_img):
-            # if config['random_question']:
-            #     qa_idx = random.randint(0, len(syn_question_queid) - 1)
-            # else:
-            qa_idx = idx
-            if (
-                question_type != "rule" and num_question_per_img > 0 and idx < 1
-            ):  ## yes and no questions for vqav2
-                # Task_Prompt += "Question:"
-                # Task_Prompt += syn_question_queid_next[-1]
-                # Task_Prompt += '\n'
-                # Task_Prompt += "Answer:no\n"
-                Task_Prompt += "Question:"
-                Task_Prompt += syn_question_queid[-1]
-                Task_Prompt += "\n"
-                Task_Prompt += "Answer:"
-                Task_Prompt += "yes\n"
-                Task_Prompt += "Question:Is this a toilet?\n"
-                Task_Prompt += "Answer:no\n"
-            if "question_type" == "rule":  # Rule-Based Question Generation
-                Noun_Questions = [
-                    "What item is this in this picture?",
-                    "What item is that in this picture?",
-                ]
-
-                Verb_Questions = [
-                    "What action is being done in this picture?",
-                    "Why is this item doing in this picture?",
-                    "Which action is being taken in this picture?",
-                    "What action is item doing in this picture?",
-                    "What action is item performing in this picture?",
-                ]
-
-                Adj_Questions = [
-                    "How to describe one item in this picture?",
-                    "What is item's ADJ TYPE in this picture?",
-                    "What is the ADJ TYPE in this picture?",
-                ]
-
-                Task_Prompt += "Question:"
-                doc = self.nlp(syn_ans_queid[(qa_idx) % len(syn_ans_queid)][:-1].lower())
-                if doc[-1].pos_ == "NOUN":
-                    Task_Prompt += Noun_Questions[
-                        random.randint(0, len(Noun_Questions) - 1)
-                    ]
-                elif doc[-1].pos_ == "VERB":
-                    Task_Prompt += Verb_Questions[
-                        random.randint(0, len(Verb_Questions) - 1)
-                    ]
-                elif doc[-1].pos_ == "ADJ":
-                    Task_Prompt += Adj_Questions[
-                        random.randint(0, len(Adj_Questions) - 1)
+        samples["Task_Prompt"] = []
+        for i in range(len(samples["answers"])):
+            syn_question_queid = samples["questions"][i]
+            syn_ans_queid = samples["answers"][i]
+            Task_Prompt = ""
+            for idx in range(num_question_per_img):
+                # if config['random_question']:
+                #     qa_idx = random.randint(0, len(syn_question_queid) - 1)
+                # else:
+                qa_idx = idx
+                if (
+                    question_type != "rule" and num_question_per_img > 0
+                ):  ## yes and no questions for vqav2
+                    # Task_Prompt += "Question:"
+                    # Task_Prompt += syn_question_queid_next[-1]
+                    # Task_Prompt += '\n'
+                    # Task_Prompt += "Answer:no\n"
+                    Task_Prompt += "Question:"
+                    Task_Prompt += syn_question_queid[qa_idx]
+                    Task_Prompt += "\n"
+                    Task_Prompt += "Answer:"
+                    Task_Prompt += syn_ans_queid[qa_idx]
+                    Task_Prompt += "\n"
+                if "question_type" == "rule":  # Rule-Based Question Generation
+                    Noun_Questions = [
+                        "What item is this in this picture?",
+                        "What item is that in this picture?",
                     ]
 
-                Task_Prompt += "\n"
+                    Verb_Questions = [
+                        "What action is being done in this picture?",
+                        "Why is this item doing in this picture?",
+                        "Which action is being taken in this picture?",
+                        "What action is item doing in this picture?",
+                        "What action is item performing in this picture?",
+                    ]
 
-                Task_Prompt += "Answer:"
-                Task_Prompt += syn_ans_queid[(qa_idx) % len(syn_ans_queid)][:-1].lower()
-                Task_Prompt += "\n"
-        samples["Task_Prompt"] = Task_Prompt
+                    Adj_Questions = [
+                        "How to describe one item in this picture?",
+                        "What is item's ADJ TYPE in this picture?",
+                        "What is the ADJ TYPE in this picture?",
+                    ]
+
+                    Task_Prompt += "Question:"
+                    doc = self.nlp(syn_ans_queid[(qa_idx) % len(syn_ans_queid)][:-1].lower())
+                    if doc[-1].pos_ == "NOUN":
+                        Task_Prompt += Noun_Questions[
+                            random.randint(0, len(Noun_Questions) - 1)
+                        ]
+                    elif doc[-1].pos_ == "VERB":
+                        Task_Prompt += Verb_Questions[
+                            random.randint(0, len(Verb_Questions) - 1)
+                        ]
+                    elif doc[-1].pos_ == "ADJ":
+                        Task_Prompt += Adj_Questions[
+                            random.randint(0, len(Adj_Questions) - 1)
+                        ]
+
+                    Task_Prompt += "\n"
+
+                    Task_Prompt += "Answer:"
+                    Task_Prompt += syn_ans_queid[(qa_idx) % len(syn_ans_queid)][:-1].lower()
+                    Task_Prompt += "\n"
+            samples["Task_Prompt"].append(Task_Prompt)
         # print(Task_Prompt)
-        return Task_Prompt
+        return samples["Task_Prompt"]
 
     def prompts_construction(
         self,
@@ -449,23 +464,24 @@ class Img2PromptVQA(BaseModel):
     ):
         Prompt = "Please reason the answer of the questions according to the given contexts.\n"
 
-        Context_Prompt = self.create_context_prompt(samples, num_caps_per_img)
+        Context_Prompts = self.create_context_prompt(samples, num_caps_per_img) # a batch of contexts
 
-        Task_Prompt = self.create_task_prompt(
+        Task_Prompts = self.create_task_prompt(
             samples, question_type, num_question_per_img
-        )
+        ) # a batch of questions
 
-        Img2Prompt = (
+        samples['Img2Prompts'] = [(
             Prompt
             + "Contexts:"
             + Context_Prompt
             + "\n"
             + Task_Prompt
             + "Question:"
-            + samples["text_input"][0]
+            + input_question
             + "\nAnswer:"
-        )
-        return Img2Prompt
+        ) for Context_Prompt, Task_Prompt, input_question in zip(Context_Prompts, Task_Prompts, samples['text_input'])]
+
+        return samples
 
     def prepare_LLM_input(
         self,

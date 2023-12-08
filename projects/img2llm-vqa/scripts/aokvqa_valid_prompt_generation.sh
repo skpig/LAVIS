@@ -1,0 +1,2 @@
+python3 projects/img2llm-vqa/img2llm_vqa.py --dataset_name aokvqa --split val --bsz 8 --stage 'prompt_generation'
+python3 projects/img2llm-vqa/img2llm_vqa.py --dataset_name aokvqa --split val --bsz 4 --stage 'answer_generation'
