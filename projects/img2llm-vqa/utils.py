@@ -4,6 +4,73 @@ from PIL import Image
 from networkx import lexicographic_product
 import re
 
+
+def visualize_chat_prompt(history):
+    """
+    Format of history:
+    [
+            {"role": "system", "content": "Be a good boy."}
+            {"role": "user", "content": "I am going to Paris, what should I see?"},
+            {"role": "assistant", "content": "blah blah blah"},
+            {"role": "user", "content": "What is so great about #1?"},
+    ]
+    """
+    for i, turn in enumerate(history):
+        if turn['role'] == 'system':
+            print(f"===System===\n{turn['content']}")
+        elif turn['role'] == 'user':
+            print(f"===User===\n{turn['content']}")
+        elif turn['role'] == 'assistant':
+            print(f"===Assistant===\n{turn['content']}")
+        else:
+            raise NotImplementedError
+
+
+def _chat_prompt(dialog, tokenizer):
+    """
+    Format of one history:
+    [
+            {"role": "system", "content": "Be a good boy."}
+            {"role": "user", "content": "I am going to Paris, what should I see?"},
+            {"role": "assistant", "content": "blah blah blah"},
+            {"role": "user", "content": "What is so great about #1?"},
+    ]
+    """
+    B_INST, E_INST = "[INST]", "[/INST]"
+    B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+
+    SPECIAL_TAGS = [B_INST, E_INST, "<<SYS>>", "<</SYS>>"]
+    UNSAFE_ERROR = "Error: special tags are not allowed as part of the prompt."
+
+    if dialog[0]["role"] == "system":
+        dialog = [
+            {
+                "role": dialog[1]["role"],
+                "content": B_SYS
+                + dialog[0]["content"]
+                + E_SYS
+                + dialog[1]["content"],
+            }
+        ] + dialog[2:]
+    assert all([msg["role"] == "user" for msg in dialog[::2]]) and \
+           all([msg["role"] == "assistant" for msg in dialog[1::2]])
+    
+    history = ''.join([
+        tokenizer.bos_token + f"{B_INST} {(prompt['content']).strip()} {E_INST} {(answer['content']).strip()} " + tokenizer.eos_token
+        for prompt, answer in zip(
+            dialog[::2],
+            dialog[1::2],
+        )
+    ])
+
+    assert (dialog[-1]["role"] == "user"), f"Last message must be from user, got {dialog[-1]['role']}"
+    history += tokenizer.bos_token + f"{B_INST} {(dialog[-1]['content']).strip()} {E_INST}"
+
+    return history
+
+def batch_chat_prompt(batch_history, tokenizer):
+    return [_chat_prompt(history, tokenizer) for history in batch_history]
+
 def postprocess_Answer(text):
     try: 
         answer = re.search(r'(.*?)(\.|\n)', text).group(1).strip()
