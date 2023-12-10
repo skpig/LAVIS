@@ -204,118 +204,123 @@ def error_cases_analysis(error_case):
 {
             'role': 'system',
             'content': """
-Each time I will provide you with a question and some description of a type of image, presented using the following format: [First Query] represents how many rounds of questions this is, [Question] followed by the specific questions, [Caption] each sentence represents a description of an area of the image. Try to answer the question by thinking step-by-step according to given contexts. Note that there may be duplications and conflicts in multiple captions, and when you are unsure you can query for more information and apply more rational reasoning. I'll give you the formatting requirements for each section of the output and their content limitations:
-1. "Query trun", limitation:  Answer based on the tag of the question, for example "1" means the first query. Never repeat what's already been said in the same query, and don't ask for the same information twice.
-2. "Search turn", limitation: Represents the number of rounds retrieved for the current query,which should be limited to 5. 
-3. "Reason" , limitation: You need to give the "Reason:reason" in each response, such as "Reason : 'We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it' " .
-4. "Search" , limitation: Use the "Search" to ask for more image captions of the term you want to look up in the image according to your reason text in a brief and short manner, such as " 'Search' : 'the number on the cake' ", When you don't need more information output " 'Search' : 'None' ".
-5. "Answer", limitation: Output answer in a brief and short mannern. When the round comes to "Search turn" : 5 , give an answer that is not "None" regardless of confidence, otherwise keep outputing "[Answer]:None".
-All the content will be given in json prompt.
+For each query I will provide you with some captions of a image and a question about the image, presented in json format. Answer the question step-by-step according to given captions. 
+Note that there may be duplications and conflicts in captions, and when you are unsure you can query for more information and apply more rational reasoning. 
+Your should give your answer in json format. The requirements are as follows:
+- "QueryID", the id of current question, for example "1" means the first query. Never repeat what's already been said in the same query, and don't ask for the same information twice.
+- "TurnID", the number of rounds retrieved for the current query.
+- "Reason", the rationale of your reasoning process. For example, "Reason: 'We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it' " .
+- "Search", use the "Search" to ask for more image captions of the term you want to look up in the image according to your reason text in a brief and short manner, such as " 'Search' : 'the number on the cake' ", When you don't need more information output "Search: 'None' ".
+- "Answer", output answer in a brief and short mannern. Response "null" if you are not confident. Give an final answer that is not "null" regardless of confidence when TurnID is 5.
 """
         },
         {
             'role': 'user',
             'content': """{
-        "Query turn" : 1,
-        "Caption" : ["a fence of picket white boards with a gate", "the house is fenced in in front of a white picketed fence", "a white picket with pink roses in front of it"],
-        "Question" : "What item is in front of the fence which can be used to fire fighting?"
-    }"""
+"QueryID" : 1,
+"Caption" : ["a fence of picket white boards with a gate", "the house is fenced in in front of a white picketed fence", "a white picket with pink roses in front of it"],
+"Question" : "What item is in front of the fence which can be used to fire fighting?"
+}"""
         },
         {
             'role': 'assistant',
             'content': """{
-        "Query turn" : 1,
-        "Search turn" : 0,
-        "Reason" : "We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it.",
-        "Search" : "object in front of the fence",
-        "Answer" : "None"
-    }"""
+"QueryID" : 1,
+"TurnID" : 0,
+"Reason" : "We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it.",
+"Search" : "object in front of the fence",
+"Answer" : "None"
+}"""
         },
         {
             'role': 'user',
             'content': """{
-        "Query turn" : 1,
-        "Caption" : ["a yellow fire hydrant in front of a white fence","There's a bush of pink roses in front of the fence"]
-    }"""
+"QueryID" : 1,
+"Caption" : ["a yellow fire hydrant in front of a white fence","There's a bush of pink roses in front of the fence"]
+"Question" : "What item is in front of the fence which can be used to fire fighting?"
+}"""
         },
         {
             'role': 'assistant',
             'content': """{
-        "Query turn" : 1,
-        "Search turn" : 1,
-        "Reason" : "Knowing from the description that there are many objects in the picture in front of the white fence, including roses and fire hydrants, you need to identify the yellow object in the question",
-        "Search" : "yellow object in front of the fence",
-        "Answer" : "None"
-    }"""
+"QueryID" : 1,
+"TurnID" : 1,
+"Reason" : "Knowing from the description that there are many objects in the picture in front of the white fence, including roses and fire hydrants, you need to identify the yellow object in the question",
+"Search" : "yellow object in front of the fence",
+"Answer" : "None"
+}"""
         },
         {
             'role': 'user',
             'content': """{
-        "Query turn" : 1,
-        "Caption" : ["a yellow fire hydrant in front of a white fence","There's a yellow cylinder in front of a white fence"]
-    } """
+"QueryID" : 1,
+"Caption" : ["a yellow fire hydrant in front of a white fence","There's a yellow cylinder in front of a white fence"]
+"Question" : "What item is in front of the fence which can be used to fire fighting?"
+}"""
         },
         {
             'role': 'assistant',
             'content': """{
-        "Query turn" : 1,
-        "Search turn" : 2,
-        "Reason" : "The yellow fire hydrant is in front of the white fence, while it can also be used to put out fires.",
-        "Search" : "None",
-        "Answer" : "fire hydrant"
-    }"""
+"QueryID" : 1,
+"TurnID" : 2,
+"Reason" : "The yellow fire hydrant is in front of the white fence, while it can also be used to put out fires.",
+"Search" : "None",
+"Answer" : "fire hydrant"
+}"""
         },
         {
             'role': 'user',
             'content': """{
-        "Query turn" : 2,
-        "Caption" : ["A Lakers player, donning the jersey number 23, is in the middle of taking a three-point shot while being closely guarded by opposing players","The crowd holds its breath in anticipation while the Pacers' defenders try to block his every move" ,"A player, identified by his jersey number 25, launches a three-point attempt", "The basketball court is alive with energy as the Los Angeles Lakers take on the Indiana Pacers." ],
-        "Question" : "What is the jersey number of the player shooting the three?"
-    }"""
+"QueryID" : 2,
+"Caption" : ["A Lakers player, donning the jersey number 23, is in the middle of taking a three-point shot while being closely guarded by opposing players","The crowd holds its breath in anticipation while the Pacers' defenders try to block his every move" ,"A player, identified by his jersey number 25, launches a three-point attempt", "The basketball court is alive with energy as the Los Angeles Lakers take on the Indiana Pacers." ],
+"Question" : "What is the jersey number of the player shooting the three?"
+}"""
         },
         {
             'role': 'assistant',
             'content': """{
-        "Query turn" : 2,
-        "Search turn" : 0,
-        "Reason" : "In order to know the jersey number we need to know the person who shot three.",
-        "Search" : "the person who shot three",
-        "Answer" : "None"
-    }"""
+"QueryID" : 2,
+"TurnID" : 0,
+"Reason" : "In order to know the jersey number we need to know the person who shot three.",
+"Search" : "the person who shot three",
+"Answer" : "None"
+}"""
         },
         {
             'role': 'user',
             'content': """{
-        "Query turn" : 2,
-        "Caption" : ["A player in a yellow is shooting three."]
-    }"""
+"QueryID" : 2,
+"Caption" : ["A player in a yellow is shooting three."]
+"Question" : "What is the jersey number of the player shooting the three?"
+}"""
         },
         {
             'role': 'assistant',
             'content': """{
-        "Query turn" : 2,
-        "Search turn" : 1,
-        "Reason" : "We already know that this is a ball game, mentioning that the player's jersey number is 23 or 25, in order to get the jersey number accurately we need to know more about the number.",
-        "Search" : "jersey number of the person who shot the ball",
-        "Answer" : "None"
-    }"""
+"QueryID" : 2,
+"TurnID" : 1,
+"Reason" : "We already know that this is a ball game, mentioning that the player's jersey number is 23 or 25, in order to get the jersey number accurately we need to know more about the number.",
+"Search" : "jersey number of the person who shot the ball",
+"Answer" : "None"
+}"""
         },
         {
             'role': 'user',
             'content': """{
-        "Query turn" : 2,
-        "Caption" : ["A player in a yellow No. 23 jersey is shooting three."]
-    }"""
+"QueryID" : 2,
+"Caption" : ["A player in a yellow No. 23 jersey is shooting three."]
+"Question" : "What is the jersey number of the player shooting the three?"
+}"""
         },
         {
             'role': 'assistant',
             'content': """{
-        "Query turn" : 2,
-        "Search turn" : 2,
-        "Reason" : "We already know the guy in the 23 jersey is shooting, we don't need more info than that.",
-        "Search" : "None",
-        "Answer" : "23"
-    }"""
+"QueryID" : 2,
+"TurnID" : 2,
+"Reason" : "We already know the guy in the 23 jersey is shooting, we don't need more info than that.",
+"Search" : "None",
+"Answer" : "23"
+}"""
         },
 ]
 
@@ -335,7 +340,7 @@ All the content will be given in json prompt.
             history.append({
                 'role': 'user',
                 'content': f"""{{
-        "Query turn" : 3,
+        "QueryID" : 3,
         "Caption" : {cur_caption.split(".")}",
         "Question" : "{error_case['question']}" }}"""
             })
@@ -344,7 +349,7 @@ All the content will be given in json prompt.
             history.append({
                 'role': 'user',
                 'content': f"""{{
-        "Query turn" : 3,
+        "QueryID" : 3,
         "Caption" : {cur_caption.split(".")[:5]}
                 }}"""
             })
@@ -414,16 +419,25 @@ if __name__ == '__main__':
     dataset_path = "datasets/" + args.dataset_name
     split = args.split
     dataset = load_aokvqa(dataset_path, split, version='v1p0', indices=None)
-    index = random.sample(range(len(dataset)),100)
+
+    # index = random.sample(range(len(dataset)),100)
+    # extract error cases
+    with open('result_5_10.txt', 'r') as f:
+        scores = json.loads(f.readline())
+    assert len(scores) == len(dataset)
+    index = [i for i in range(len(dataset)) if scores[i] == 0]
+
     val_dataset = [dataset[i] for i in index]
     #val_dataset = dataset
+
     answer = []
+
     # use tqdm to visualize progress
     with tqdm(total = len(val_dataset)) as pbar:
         pbar.set_description('Processing:')
         for item in val_dataset:
             single = {}
-            single['pred'] = error_cases_analysis(deepcopy(item))
+            single['pred'], single['history'] = error_cases_analysis(deepcopy(item))
             answer.append(single)
             # print(single['pred'])
             # print(item['direct_answers'])
