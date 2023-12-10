@@ -104,8 +104,9 @@ def soft_acc(dataset, samples):
     for d, s in zip(dataset, samples):
         if 'direct_answers' not in d:
             continue
-        pred_answer = postprocess_Answer(s['pred'])
-        num_match = sum([pred_answer.find(ans) != -1 for ans in d['direct_answers']])
+        # pred_answer = postprocess_Answer(s['pred'])
+        pred_answer = s['pred'].lower()
+        num_match = sum([pred_answer.find(ans.lower()) != -1 for ans in d['direct_answers']])
         acc.append(min(1.0, num_match/3.0))
         
     return acc

@@ -1,0 +1,86 @@
+[
+    {
+        "Query turn" : 1,
+        "Caption" : ["a fence of picket white boards with a gate", "the house is fenced in in front of a white picketed fence", "a white picket with pink roses in front of it"],
+        "Question" : "What item is in front of the fence which can be used to fire fighting?"
+    },
+
+    {
+        "Query turn" : 1,
+        "Search turn" : 0,
+        "Reason" : "We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it.",
+        "Search" : "object in front of the fence",
+        "Answer" : "None"
+    },
+
+    {
+        "Query turn" : 1,
+        "Caption" : ["a yellow fire hydrant in front of a white fence","There's a bush of pink roses in front of the fence"]
+    },   
+
+    {
+        "Query turn" : 1,
+        "Search turn" : 1,
+        "Reason" : "Knowing from the description that there are many objects in the picture in front of the white fence, including roses and fire hydrants, you need to identify the yellow object in the question",
+        "Search" : "yellow object in front of the fence",
+        "Answer" : "None"
+    },
+
+    {
+        "Query turn" : 1,
+        "Caption" : ["a yellow fire hydrant in front of a white fence","There's a yellow cylinder in front of a white fence"]
+    }, 
+
+    {
+        "Query turn" : 1,
+        "Search turn" : 2,
+        "Reason" : "The yellow fire hydrant is in front of the white fence, while it can also be used to put out fires.",
+        "Search" : "None",
+        "Answer" : "fire hydrant"
+    }, 
+
+
+
+
+
+    {
+        "Query turn" : 2,
+        "Caption" : ["A Lakers player, donning the jersey number 23, is in the middle of taking a three-point shot while being closely guarded by opposing players","The crowd holds its breath in anticipation while the Pacers' defenders try to block his every move" ,"A player, identified by his jersey number 25, launches a three-point attempt", "The basketball court is alive with energy as the Los Angeles Lakers take on the Indiana Pacers." ],
+        "Question" : "What is the jersey number of the player shooting the three?"
+    },
+
+    {
+        "Query turn" : 2,
+        "Search turn" : 0,
+        "Reason" : "In order to know the jersey number we need to know the person who shot three.",
+        "Search" : "the person who shot three",
+        "Answer" : "None"
+    },
+
+    {
+        "Query turn" : 2,
+        "Caption" : ["A player in a yellow is shooting three."]
+    },   
+
+    {
+        "Query turn" : 2,
+        "Search turn" : 1,
+        "Reason" : "We already know that this is a ball game, mentioning that the player's jersey number is 23 or 25, in order to get the jersey number accurately we need to know more about the number.",
+        "Search" : "jersey number of the person who shot the ball",
+        "Answer" : "None"
+    },
+
+    {
+        "Query turn" : 2,
+        "Caption" : ["A player in a yellow No. 23 jersey is shooting three."]
+    }, 
+
+    {
+        "Query turn" : 2,
+        "Search turn" : 2,
+        "Reason" : "We already know the guy in the 23 jersey is shooting, we don't need more info than that.",
+        "Search" : "None",
+        "Answer" : "23"
+    }, 
+]
+
