@@ -52,7 +52,7 @@ def gradcam_visualization(raw_image, samples):
 
     fig.savefig('gradcam.png')
 
-def prompt_generation(batch_data, device, model, vis_processors, txt_processors):
+def prompt_generation(batch_data, device, model, vis_processors, txt_processors, num_captions):
     """
     Args:
         batch_data: a list of dicts, each dict contains the following keys:
@@ -84,7 +84,7 @@ def prompt_generation(batch_data, device, model, vis_processors, txt_processors)
 
     # #### 2. Image Captioning
     # Generate question-guided captions based on the relevancy score
-    samples = model.forward_cap(samples=samples, num_captions=10, num_patches=20) # add a field 'captions': a list of bsz lists of strings
+    samples = model.forward_cap(samples=samples, num_captions=num_captions, num_patches=20) # add a field 'captions': a list of bsz lists of strings
     # print('Examples of question-guided captions: ')
     # print(samples['captions'][0][:5])
 
@@ -207,152 +207,153 @@ def error_cases_analysis(error_case):
 For each query I will provide you with some captions of a image and a question about the image, presented in json format. Answer the question step-by-step according to given captions. 
 Note that there may be duplications and conflicts in captions, and when you are unsure you can query for more information and apply more rational reasoning. 
 Your should give your answer in json format. The requirements are as follows:
-- "QueryID", the id of current question, for example "1" means the first query. Never repeat what's already been said in the same query, and don't ask for the same information twice.
-- "TurnID", the number of rounds retrieved for the current query.
-- "Reason", the rationale of your reasoning process. For example, "Reason: 'We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it' " .
-- "Search", use the "Search" to ask for more image captions of the term you want to look up in the image according to your reason text in a brief and short manner, such as " 'Search' : 'the number on the cake' ", When you don't need more information output "Search: 'None' ".
-- "Answer", output answer in a brief and short mannern. Response "null" if you are not confident. Give an final answer that is not "null" regardless of confidence when TurnID is 5.
+- "QueryID": the id of current question, for example "1" means the first query. Never repeat what's already been said in the same query, and don't ask for the same information twice.
+- "TurnID": the number of rounds retrieved for the current query.
+- "Reason": the rationale of your reasoning process. For example, "Reason: 'We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it' " .
+- "Action": following the "Reason" content, choose what to do next from the following two actions.
+    - "Search": ask for more captions about a specific term you want to look up in the image. keep the the term brief and short. For example, "Search: 'the number on the cake'".
+    - "Answer": if you are confident enough, give an answer in a brief and short manner.
 """
         },
         {
             'role': 'user',
             'content': """{
-"QueryID" : 1,
-"Caption" : ["a fence of picket white boards with a gate", "the house is fenced in in front of a white picketed fence", "a white picket with pink roses in front of it"],
-"Question" : "What item is in front of the fence which can be used to fire fighting?"
+    "QueryID" : 1,
+    "Question" : "What item is in front of the fence which is yellow and can be used to fire fighting?"
+    "Caption" : ["a fence of picket white boards with a gate", "the house is fenced in in front of a white picketed fence", "a white picket with pink roses in front of it"],
 }"""
         },
         {
             'role': 'assistant',
             'content': """{
-"QueryID" : 1,
-"TurnID" : 0,
-"Reason" : "We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it.",
-"Search" : "object in front of the fence",
-"Answer" : "None"
+    "QueryID" : 1,
+    "TurnID" : 0,
+    "Reason" : "There are pink roses in front of the fence, but the information about the yellow thing is missing. The answer to the question is not present in the captions.",
+    "Action" : {
+        "Search" : "object in front of the fence"
+    }
 }"""
         },
         {
             'role': 'user',
             'content': """{
-"QueryID" : 1,
-"Caption" : ["a yellow fire hydrant in front of a white fence","There's a bush of pink roses in front of the fence"]
-"Question" : "What item is in front of the fence which can be used to fire fighting?"
+    "QueryID" : 1,
+    "Question" : "What item is in front of the fence which is yellow and can be used to fire fighting?"
+    "Caption" : ["a fire hydrant in front of a white fence","There's a bush of pink roses in front of the fence"],
 }"""
         },
         {
             'role': 'assistant',
             'content': """{
-"QueryID" : 1,
-"TurnID" : 1,
-"Reason" : "Knowing from the description that there are many objects in the picture in front of the white fence, including roses and fire hydrants, you need to identify the yellow object in the question",
-"Search" : "yellow object in front of the fence",
-"Answer" : "None"
+    "QueryID" : 1,
+    "TurnID" : 1,
+    "Reason" : "There are many objects in the picture in front of the white fence, including roses and fire hydrants. Need to identify the yellow object in the question",
+    "Action" : {
+        "Search" : "yellow object in front of the fence"
+    }
 }"""
         },
         {
             'role': 'user',
             'content': """{
-"QueryID" : 1,
-"Caption" : ["a yellow fire hydrant in front of a white fence","There's a yellow cylinder in front of a white fence"]
-"Question" : "What item is in front of the fence which can be used to fire fighting?"
+    "QueryID" : 1,
+    "Question" : "What item is in front of the fence which is yellow and can be used to fire fighting?"
+    "Caption" : ["a yellow fire hydrant in front of a white fence","There's a yellow cylinder in front of a white fence"],
 }"""
         },
         {
             'role': 'assistant',
             'content': """{
-"QueryID" : 1,
-"TurnID" : 2,
-"Reason" : "The yellow fire hydrant is in front of the white fence, while it can also be used to put out fires.",
-"Search" : "None",
-"Answer" : "fire hydrant"
+    "QueryID" : 1,
+    "TurnID" : 2,
+    "Reason" : "The yellow fire hydrant is in front of the white fence, while it can also be used to put out fires.",
+    "Action" : {
+        "Answer" : "fire hydrant"
+    }
 }"""
         },
         {
             'role': 'user',
             'content': """{
-"QueryID" : 2,
-"Caption" : ["A Lakers player, donning the jersey number 23, is in the middle of taking a three-point shot while being closely guarded by opposing players","The crowd holds its breath in anticipation while the Pacers' defenders try to block his every move" ,"A player, identified by his jersey number 25, launches a three-point attempt", "The basketball court is alive with energy as the Los Angeles Lakers take on the Indiana Pacers." ],
-"Question" : "What is the jersey number of the player shooting the three?"
+    "QueryID" : 2,
+    "Question" : "What is the jersey number of the player shooting the three?"
+    "Caption" : ["A Lakers player, donning the jersey number 23, is in the middle of taking a three-point shot while being closely guarded by opposing players","The crowd holds its breath in anticipation while the Pacers' defenders try to block his every move" ,"A player, identified by his jersey number 25, launches a three-point attempt", "The basketball court is alive with energy as the Los Angeles Lakers take on the Indiana Pacers." ],
 }"""
         },
         {
             'role': 'assistant',
             'content': """{
-"QueryID" : 2,
-"TurnID" : 0,
-"Reason" : "In order to know the jersey number we need to know the person who shot three.",
-"Search" : "the person who shot three",
-"Answer" : "None"
+    "QueryID" : 2,
+    "TurnID" : 0,
+    "Reason" : "In order to know the jersey number. Need to find the person who shot three.",
+    "Action" : {
+        "Search" : "the person who shot three"
+    }
 }"""
         },
         {
             'role': 'user',
             'content': """{
-"QueryID" : 2,
-"Caption" : ["A player in a yellow is shooting three."]
-"Question" : "What is the jersey number of the player shooting the three?"
+    "QueryID" : 2,
+    "Question" : "What is the jersey number of the player shooting the three?"
+    "Caption" : ["A player in a yellow is shooting three."],
 }"""
         },
         {
             'role': 'assistant',
             'content': """{
-"QueryID" : 2,
-"TurnID" : 1,
-"Reason" : "We already know that this is a ball game, mentioning that the player's jersey number is 23 or 25, in order to get the jersey number accurately we need to know more about the number.",
-"Search" : "jersey number of the person who shot the ball",
-"Answer" : "None"
+    "QueryID" : 2,
+    "TurnID" : 1,
+    "Reason" : "The player who is shooting three is wearing yellow. Maybe he is from the Laker.",
+    "Action" : {
+        "Search" : "jersey number of the Laker player in yellow who shot the ball"
+    }
 }"""
         },
         {
             'role': 'user',
             'content': """{
-"QueryID" : 2,
-"Caption" : ["A player in a yellow No. 23 jersey is shooting three."]
-"Question" : "What is the jersey number of the player shooting the three?"
+    "QueryID" : 2,
+    "Question" : "What is the jersey number of the player shooting the three?"
+    "Caption" : ["A player in a yellow No. 23 jersey is shooting three."],
 }"""
         },
         {
             'role': 'assistant',
             'content': """{
-"QueryID" : 2,
-"TurnID" : 2,
-"Reason" : "We already know the guy in the 23 jersey is shooting, we don't need more info than that.",
-"Search" : "None",
-"Answer" : "23"
+    "QueryID" : 2,
+    "TurnID" : 2,
+    "Reason" : "The guy in the 23 jersey is shooting three.",
+    "Action" : {
+        "Answer" : "23"
+    }
 }"""
         },
 ]
 
-    #visualize_chat_prompt(history)
+    # visualize_chat_prompt(history)
 
     original_question = error_case['question']
     first_turn = True
     turns = 0
     while True:
-        batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors)
+        if first_turn:
+            batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors, num_captions=15)
+            first_turn = False
+        else:
+            batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors, num_captions=5)
         torch.cuda.empty_cache()
         # get first caption
         cur_caption = batch_cur_caption[0]
 
-        # TODO: how to add cur_caption to history
-        if first_turn:
-            history.append({
-                'role': 'user',
-                'content': f"""{{
-        "QueryID" : 3,
-        "Caption" : {cur_caption.split(".")}",
-        "Question" : "{error_case['question']}" }}"""
-            })
-            first_turn = False
-        else:
-            history.append({
-                'role': 'user',
-                'content': f"""{{
-        "QueryID" : 3,
-        "Caption" : {cur_caption.split(".")[:5]}
-                }}"""
-            })
+        history.append({
+            'role': 'user',
+            'content': f"""{{
+    "QueryID" : 3,
+    "Question" : "{original_question}" 
+    "Caption" : {json.dumps(cur_caption.split("."))},
+}}"""
+        })
         
 
         with torch.no_grad():
@@ -363,34 +364,34 @@ Your should give your answer in json format. The requirements are as follows:
 
         # print(cur_responese)
         # TODO: change the 'question' field in error_case according to cur_response
-        search_question = re.search(r'\"Search\" (.*)\n', cur_responese)
-        if search_question is not None:
-            if search_question.group(1).find('None') == -1:
-                error_case['question'] = search_question.group(1).split('"')[1]
-            else :
-                error_case['question'] = original_question
-        else:
-            error_case['question'] = original_question
 
-        #visualize_chat_prompt(history[-2:])
-
-        # input("Press Enter to continue...")
-        group = re.search(r'\"Answer\" (.*)', cur_responese)
-        # if group is not None and group.group(1).split('"')[1].find('None') == -1 :
-        #     return cur_responese, history
-        turns += 1
-        if turns > 5:
-            if search_question is not None:
-                if search_question.group(1).find('None') == -1:
-                    return search_question.group(1).split('"')[1]
-                else:
-                    return "None"
+        visualize_chat_prompt(history[-2:])
+        try:
+            cur_responese = json.loads(cur_responese)
+            if 'Answer' in cur_responese['Action']:
+                pred = cur_responese['Action']['Answer']
+                return pred, history, "answer"
             else:
-                return "None"
-        if group is not None and group.group(1).split('"')[1].find('None') == -1 :
-            pred = group.group(1).split('"')[1]
-            return pred
+                assert 'Search' in cur_responese['Action']
+                error_case['question'] = cur_responese['Action']['Search']
+                turns += 1
+                # Tricky
+                if turns > 5:
+                    return error_case['question'], history, "question"
 
+        except Exception:
+            try:
+                print("----Error in parsing response----")
+                print(cur_responese)
+                answer = re.search(r'(?:\'|\")Answer(?:\'|\")(.*)', cur_responese)
+                if answer is not None:
+                    pred = answer.group(1).strip().strip(':').strip('"')
+                    return pred, history, "answer"
+                question = re.search(r'(?:\'|\")Search(?:\'|\")(.*)', cur_responese)
+                assert question is not None
+                error_case['question'] = question.group(1).strip().strip(':').strip('"')
+            except Exception:
+                return cur_responese, history, "full response"
 
 
 if __name__ == '__main__':
@@ -429,28 +430,42 @@ if __name__ == '__main__':
 
     val_dataset = [dataset[i] for i in index]
     #val_dataset = dataset
+    # val_dataset = val_dataset[:100]
 
     answer = []
 
     # use tqdm to visualize progress
-    with tqdm(total = len(val_dataset)) as pbar:
-        pbar.set_description('Processing:')
-        for item in val_dataset:
-            single = {}
-            single['pred'], single['history'] = error_cases_analysis(deepcopy(item))
-            answer.append(single)
-            # print(single['pred'])
-            # print(item['direct_answers'])
-            pbar.update(1)
+    try:
+        with tqdm(total = len(val_dataset)) as pbar:
+            pbar.set_description('Processing:')
+            for i, item in enumerate(val_dataset):
+                if i < 0:
+                    pbar.update(1)
+                    continue
+                single = {'direct_answers': item['direct_answers']}
+                single['pred'], single['history'], single['pred_type'] = error_cases_analysis(deepcopy(item))
+                answer.append(single)
+                # print(single['pred'])
+                # print(item['direct_answers'])
+                with open('hbz.json', 'w') as f:
+                    json.dump(answer, f, indent=4)
+                pbar.update(1)
+
+    except Exception as e:
+        print(e)
+        result = soft_acc(val_dataset, answer)
+        print(sum(result) / len(val_dataset))
+        with open('hbz.json', 'w') as f:
+            json.dump(answer, f, indent=4)
+
     # with open('pred_ours.json', 'w') as f:
     #     json.dump(answer, f, indent=4)
     result = soft_acc(val_dataset, answer)
     print(sum(result) / len(val_dataset))
-    with open('result_10_20_5.txt', 'w') as f:
-         f.write(str(result))
-    # for error_case in error_cases:
-    #     error_case['new_pred'], error_case['history'] = error_cases_analysis(deepcopy(error_case))
-    # with open('error_cases_ours.json', 'w') as f:
-    #     json.dump(error_cases, f, indent=4)
+    # with open('result_10_20_5.txt', 'w') as f:
+    #      f.write(str(result))
+
+    with open('hbz.json', 'w') as f:
+        json.dump(answer, f, indent=4)
 
     
