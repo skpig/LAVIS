@@ -204,15 +204,25 @@ def error_cases_analysis(error_case):
 {
             'role': 'system',
             'content': """
-For each query I will provide you with some captions of a image and a question about the image, presented in json format. Answer the question step-by-step according to given captions. 
-Note that there may be duplications and conflicts in captions, and when you are unsure you can query for more information and apply more rational reasoning. 
+You are required to answer several Visual-Question-Answering queries.
+For each query I will provide you with some captions of a image and a question about the image, presented in json format. 
+{
+"QueryID" : # the id of current query, for example "1" means the first query.
+"Question" : # the image-related question you need to answer
+"Caption" : # a list of captions of the image. Note that the captions might be conflict and not complete. You can query for more information and apply more rational reasoning. 
+}
+Answer the question step-by-step according to given captions. 
 Your should give your answer in json format. The requirements are as follows:
-- "QueryID": the id of current question, for example "1" means the first query. Never repeat what's already been said in the same query, and don't ask for the same information twice.
-- "TurnID": the number of rounds retrieved for the current query.
-- "Reason": the rationale of your reasoning process. For example, "Reason: 'We know that there are pink roses in front of the fence, but we don't know the information about the yellow thing, we need the shape of the yellow object about it' " .
-- "Action": following the "Reason" content, choose what to do next from the following two actions.
-    - "Search": ask for more captions about a specific term you want to look up in the image. keep the the term brief and short. For example, "Search: 'the number on the cake'".
-    - "Answer": if you are confident enough, give an answer in a brief and short manner.
+{
+"QueryID": # the id of current query, for example "1" means the first query.
+"TurnID": # the number of rounds of the current query.
+"Reason": # your reasoning process to answer the question step-by-step.
+"Action": # following the "Reason" content, choose what to do next from the following two options:
+    {
+    "Search": # ask for more captions about a specific object you want to look up in the image. keep the object brief and short.
+    "Answer": # if you are confident enough, give an answer in a brief and short manner.
+    }
+}
 """
         },
         {
@@ -338,10 +348,10 @@ Your should give your answer in json format. The requirements are as follows:
     turns = 0
     while True:
         if first_turn:
-            batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors, num_captions=15)
+            batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors, num_captions=30)
             first_turn = False
         else:
-            batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors, num_captions=5)
+            batch_cur_caption = prompt_generation([error_case], torch.device('cuda:1'), caption_model, vis_processors, txt_processors, num_captions=15)
         torch.cuda.empty_cache()
         # get first caption
         cur_caption = batch_cur_caption[0]
@@ -367,13 +377,13 @@ Your should give your answer in json format. The requirements are as follows:
 
         visualize_chat_prompt(history[-2:])
         try:
-            cur_responese = json.loads(cur_responese)
-            if 'Answer' in cur_responese['Action']:
-                pred = cur_responese['Action']['Answer']
+            cur_responese_dict = json.loads(cur_responese)
+            if 'Answer' in cur_responese_dict['Action']:
+                pred = cur_responese_dict['Action']['Answer']
                 return pred, history, "answer"
             else:
-                assert 'Search' in cur_responese['Action']
-                error_case['question'] = cur_responese['Action']['Search']
+                assert 'Search' in cur_responese_dict['Action']
+                error_case['question'] = cur_responese_dict['Action']['Search']
                 turns += 1
                 # Tricky
                 if turns > 5:
@@ -413,6 +423,13 @@ if __name__ == '__main__':
     #     error_cases = json.load(f)
     model_name = f"llama2/Llama-2-13b-chat-hf"
 
+    with open('hbz.json', 'r') as f:
+        dataset = json.load(f)
+    result = soft_acc(dataset, dataset)
+    print(sum(result) / len(result))
+    print(len(result))
+    exit(0)
+
     ### Load Img2Prompt-VQA model
     caption_model, vis_processors, txt_processors = load_model_and_preprocess(name="img2prompt_vqa", model_type="base", is_eval=True, device=torch.device('cuda:1'))
 
@@ -423,13 +440,13 @@ if __name__ == '__main__':
 
     # index = random.sample(range(len(dataset)),100)
     # extract error cases
-    with open('result_5_10.txt', 'r') as f:
-        scores = json.loads(f.readline())
-    assert len(scores) == len(dataset)
-    index = [i for i in range(len(dataset)) if scores[i] == 0]
+    # with open('result_5_10.txt', 'r') as f:
+    #     scores = json.loads(f.readline())
+    # assert len(scores) == len(dataset)
+    # index = [i for i in range(len(dataset)) if scores[i] != 0]
 
-    val_dataset = [dataset[i] for i in index]
-    #val_dataset = dataset
+    # val_dataset = [dataset[i] for i in index]
+    val_dataset = dataset
     # val_dataset = val_dataset[:100]
 
     answer = []
@@ -458,13 +475,8 @@ if __name__ == '__main__':
         with open('hbz.json', 'w') as f:
             json.dump(answer, f, indent=4)
 
-    # with open('pred_ours.json', 'w') as f:
-    #     json.dump(answer, f, indent=4)
     result = soft_acc(val_dataset, answer)
     print(sum(result) / len(val_dataset))
-    # with open('result_10_20_5.txt', 'w') as f:
-    #      f.write(str(result))
-
     with open('hbz.json', 'w') as f:
         json.dump(answer, f, indent=4)
 
