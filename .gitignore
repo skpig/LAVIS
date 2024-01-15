@@ -155,7 +155,7 @@ debug*/
 
 cache/
 
-datasets/
+dataset/
 logs/
 .vscode/
 *.png
